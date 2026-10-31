@@ -3,7 +3,7 @@ name: Build RE-CP-03 ImmortalWrt 25.12
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ 主要 ]
     paths:
       - '.github/workflows/build.yml'
       - 'scripts/**'
