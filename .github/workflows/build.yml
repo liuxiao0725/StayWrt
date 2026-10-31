@@ -1,11 +1,123 @@
+              while IFS= read -r -d '' mf; do
+                dir="$(dirname "$mf")"
+                if [ "$(basename "$dir")" = "$package" ]; then
+                  printf '%s\n' "$dir"
+                  break
+                fi
+              done)"
 
-name: YAML Syntax Test
+            if [ -z "$source_dir" ]; then
+              echo "ERROR: package directory '$package' was not found in $repo"
+              return 1
+            fi
 
-on: workflow_dispatch
+            mkdir -p "openwrt/package/local-ddnsto/$package"
+            cp -a "$source_dir"/. "openwrt/package/local-ddnsto/$package"/
+            test -f "openwrt/package/local-ddnsto/$package/Makefile"
+            echo "Imported $package from $source_dir"
+          }
 
-jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check workflow
-        run: echo "YAML syntax is valid"
+          copy_package nas-packages ddnsto
+          copy_package nas-packages-luci luci-app-ddnsto
+
+      - name: Configure RE-CP-03 and packages
+        working-directory: openwrt
+        run: |
+          set -euxo pipefail
+
+          cat > .config <<'CONFIG'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_jdcloud_re-cp-03=y
+
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-base=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_PACKAGE_luci-app-store=y
+
+          CONFIG_PACKAGE_nikki=y
+          CONFIG_PACKAGE_luci-app-nikki=y
+          CONFIG_PACKAGE_luci-i18n-nikki-zh-cn=y
+
+          CONFIG_PACKAGE_ddnsto=y
+          CONFIG_PACKAGE_luci-app-ddnsto=y
+
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+          CONFIG_PACKAGE_ca-bundle=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_block-mount=y
+
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_DIST="ImmortalWrt"
+          CONFIG_VERSION_NUMBER="25.12-custom-re-cp-03"
+          CONFIG_VERSION_REPO="https://downloads.immortalwrt.org/releases/25.12/"
+          CONFIG
+
+          make defconfig
+
+          echo "=== Target check ==="
+          grep -E '^CONFIG_TARGET_mediatek_filogic_DEVICE_jdcloud_re-cp-03=y$' .config
+
+          echo "=== Requested package check ==="
+          for package in \
+            luci-theme-argon luci-app-store nikki luci-app-nikki \
+            ddnsto luci-app-ddnsto; do
+            if ! grep -q "^CONFIG_PACKAGE_${package}=y$" .config; then
+              echo "ERROR: requested package was not selected: $package"
+              exit 1
+            fi
+          done
+
+          ./scripts/diffconfig.sh > ../diffconfig.txt
+
+      - name: Download source packages
+        working-directory: openwrt
+        run: |
+          set -euxo pipefail
+          make -j"$(nproc)" download
+
+      - name: Build firmware
+        working-directory: openwrt
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" V=s 2>&1 | tee ../build.log
+
+      - name: Verify firmware output
+        if: success()
+        run: |
+          set -euxo pipefail
+          target_dir="openwrt/bin/targets/mediatek/filogic"
+          test -d "$target_dir"
+          find "$target_dir" -maxdepth 1 -type f \
+            -name '*jdcloud_re-cp-03*.itb' -print | tee image-list.txt
+          grep -q '\.itb$' image-list.txt
+          grep -q 'jdcloud_re-cp-03' image-list.txt
+
+      - name: Upload build logs if build failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-cp-03-build-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            build.log
+            diffconfig.txt
+            immortalwrt-commit.txt
+
+      - name: Upload firmware and metadata
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-cp-03-immortalwrt-itb
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            openwrt/bin/targets/mediatek/filogic/*jdcloud_re-cp-03*.itb
+            openwrt/bin/targets/mediatek/filogic/sha256sums
+            immortalwrt-commit.txt
+            diffconfig.txt
+            image-list.txt
+            build.log
