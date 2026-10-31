@@ -1,10 +1,11 @@
 ```yaml
 name: Build RE-CP-03 ImmortalWrt 25.12
 
-on:
+'on':
   workflow_dispatch:
   push:
-    branches: ['主要']
+    branches:
+      - '主要'
     paths:
       - '.github/workflows/build.yml'
       - 'scripts/**'
@@ -63,11 +64,9 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # Explicitly install DDNSTO core and LuCI packages.
           ./scripts/feeds install -p nas ddnsto
           ./scripts/feeds install -p nas_luci luci-app-ddnsto
 
-          # Fail early if the expected package Makefiles are missing.
           test -f package/feeds/nas/ddnsto/Makefile
           test -f package/feeds/nas_luci/luci-app-ddnsto/Makefile
 
@@ -112,10 +111,8 @@ jobs:
           CONFIG
 
           make defconfig
-
           ./scripts/diffconfig.sh > ../diffconfig.txt
 
-          # Verify target and required packages survived defconfig.
           grep -E \
             '^CONFIG_TARGET_mediatek_filogic_DEVICE_jdcloud_re-cp-03=y$' \
             .config
@@ -141,7 +138,6 @@ jobs:
           set -euxo pipefail
 
           TARGET_DIR="openwrt/bin/targets/mediatek/filogic"
-
           test -d "$TARGET_DIR"
 
           find "$TARGET_DIR" \
